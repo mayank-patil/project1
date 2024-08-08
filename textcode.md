@@ -1,25 +1,32 @@
-To create and deploy a Vertex AI pipeline using Kubeflow Pipelines (KFP) directly from your Jupyter notebook, you need to follow a series of steps to set up your environment, define your pipeline components, and then compile and submit the pipeline to Vertex AI. Here is a detailed guide on how to accomplish this:
+The error `kfp.v2.google module not found` occurs because the `kfp` package has recently undergone changes, and certain modules or classes have been reorganized or removed. As of the latest versions, `AIPlatformClient` has been replaced with a more integrated approach using the `google.cloud.aiplatform` package for managing pipelines on Vertex AI.
 
-### Prerequisites
+Here's how you can address this issue and update your code to use the latest methods for deploying and managing pipelines on Vertex AI:
 
-1. **GCP Account and Project:** Ensure you have a Google Cloud account and a project set up.
-2. **Enable Vertex AI API:** In the [Google Cloud Console](https://console.cloud.google.com/), navigate to "APIs & Services" and enable the Vertex AI API.
-3. **Install Required Packages:** Make sure you have the necessary Python packages installed in your Jupyter environment:
+### Updated Instructions to Create and Deploy a Vertex AI Pipeline
+
+1. **Ensure you have the correct packages installed:**
+
+   First, make sure to install the latest version of `kfp` and `google-cloud-aiplatform`.
+
    ```bash
-   pip install kfp google-cloud-pipeline-components google-cloud-storage
+   pip install kfp google-cloud-aiplatform google-cloud-storage
    ```
 
-### Step 1: Set Up Your Environment
+2. **Import the required libraries:**
 
-1. **Import Required Libraries:**
+   You need to import the updated libraries for managing pipelines.
+
    ```python
    import kfp
    from kfp.v2 import compiler
    from kfp.v2.dsl import component, pipeline, Output, Dataset, Model, Input
-   from kfp.v2.google.client import AIPlatformClient
+   from google.cloud import aiplatform
    ```
 
-2. **Configure Environment Variables:**
+3. **Set up your environment variables:**
+
+   Configure your GCP project, region, and Cloud Storage bucket.
+
    ```python
    PROJECT_ID = 'your-gcp-project-id'
    REGION = 'us-central1'
@@ -27,8 +34,10 @@ To create and deploy a Vertex AI pipeline using Kubeflow Pipelines (KFP) directl
    PIPELINE_ROOT = f'gs://{BUCKET_NAME}/pipeline_root/'
    ```
 
-3. **Authenticate with Google Cloud:**
-   Ensure you are authenticated with Google Cloud using your service account or user credentials:
+4. **Authenticate with Google Cloud:**
+
+   Ensure you have authenticated with Google Cloud.
+
    ```python
    from google.colab import auth
    auth.authenticate_user()
@@ -37,92 +46,86 @@ To create and deploy a Vertex AI pipeline using Kubeflow Pipelines (KFP) directl
    !gcloud auth login
    ```
 
-### Step 2: Define Pipeline Components
+5. **Define your pipeline components:**
 
-Define the components for your pipeline. Each component represents a step in your ML workflow and can be created using Python functions.
+   Create reusable components for your pipeline using the updated `@component` decorator.
 
-```python
-@component
-def preprocess_op(data_path: str, output_data: Output[Dataset]):
-    import pandas as pd
-    data = pd.read_csv(data_path)
-    # Preprocessing logic
-    data.to_csv(output_data.path, index=False)
+   ```python
+   @component
+   def preprocess_op(data_path: str, output_data: Output[Dataset]):
+       import pandas as pd
+       data = pd.read_csv(data_path)
+       # Preprocessing logic
+       data.to_csv(output_data.path, index=False)
 
-@component
-def train_model_op(training_data: Input[Dataset], model: Output[Model]):
-    import pandas as pd
-    from sklearn.ensemble import RandomForestClassifier
-    import joblib
-    # Load data
-    data = pd.read_csv(training_data.path)
-    X = data.drop('target', axis=1)
-    y = data['target']
-    # Train model
-    clf = RandomForestClassifier()
-    clf.fit(X, y)
-    # Save model
-    joblib.dump(clf, model.path)
-```
+   @component
+   def train_model_op(training_data: Input[Dataset], model: Output[Model]):
+       import pandas as pd
+       from sklearn.ensemble import RandomForestClassifier
+       import joblib
+       # Load data
+       data = pd.read_csv(training_data.path)
+       X = data.drop('target', axis=1)
+       y = data['target']
+       # Train model
+       clf = RandomForestClassifier()
+       clf.fit(X, y)
+       # Save model
+       joblib.dump(clf, model.path)
+   ```
 
-### Step 3: Define the Pipeline
+6. **Define the pipeline:**
 
-Define the pipeline using the KFP DSL, chaining the components together.
+   Use the `@pipeline` decorator to create your pipeline definition.
 
-```python
-@pipeline(
-    name="my-vertex-ai-pipeline",
-    pipeline_root=PIPELINE_ROOT
-)
-def my_pipeline(data_path: str):
-    preprocess_task = preprocess_op(data_path=data_path)
-    train_model_task = train_model_op(
-        training_data=preprocess_task.outputs['output_data']
-    )
-```
+   ```python
+   @pipeline(
+       name="my-vertex-ai-pipeline",
+       pipeline_root=PIPELINE_ROOT
+   )
+   def my_pipeline(data_path: str):
+       preprocess_task = preprocess_op(data_path=data_path)
+       train_model_task = train_model_op(
+           training_data=preprocess_task.outputs['output_data']
+       )
+   ```
 
-### Step 4: Compile and Submit the Pipeline
+7. **Compile the pipeline:**
 
-Compile the pipeline and submit it to Vertex AI for execution. This step will upload the pipeline definition and create a new run.
+   Compile the pipeline into a JSON file.
 
-```python
-# Compile the pipeline
-pipeline_filename = 'my_pipeline.json'
-compiler.Compiler().compile(
-    pipeline_func=my_pipeline,
-    package_path=pipeline_filename
-)
+   ```python
+   # Compile the pipeline
+   pipeline_filename = 'my_pipeline.json'
+   compiler.Compiler().compile(
+       pipeline_func=my_pipeline,
+       package_path=pipeline_filename
+   )
+   ```
 
-# Define pipeline parameters
-pipeline_parameters = {
-    'data_path': 'gs://your-bucket-name/data.csv'
-}
+8. **Submit the pipeline to Vertex AI:**
 
-# Initialize the Vertex AI client
-vertex_ai_client = AIPlatformClient(
-    project_id=PROJECT_ID,
-    region=REGION
-)
+   Use the `google.cloud.aiplatform` library to submit the pipeline job to Vertex AI.
 
-# Submit the pipeline
-response = vertex_ai_client.create_run_from_job_spec(
-    job_spec_path=pipeline_filename,
-    parameter_values=pipeline_parameters
-)
+   ```python
+   aiplatform.init(project=PROJECT_ID, location=REGION, staging_bucket=BUCKET_NAME)
 
-# Display the response
-print(response)
-```
+   job = aiplatform.PipelineJob(
+       display_name="my-vertex-ai-pipeline-job",
+       template_path=pipeline_filename,
+       pipeline_root=PIPELINE_ROOT,
+       parameter_values={
+           'data_path': 'gs://your-bucket-name/data.csv'
+       }
+   )
 
-### Step 5: Monitor the Pipeline Execution
+   job.run(sync=True)
+   ```
 
-1. **Vertex AI Dashboard:** Access the [Vertex AI dashboard](https://console.cloud.google.com/vertex-ai) in the Google Cloud Console.
-2. **View Pipelines:** Navigate to the "Pipelines" section to monitor your pipeline's execution, view logs, and inspect outputs.
+9. **Monitor your pipeline:**
 
-### Additional Tips
+   Go to the [Vertex AI Pipelines dashboard](https://console.cloud.google.com/vertex-ai/pipelines) in the Google Cloud Console to monitor and manage your pipeline runs.
 
-- **Using Pre-built Components:** Consider using pre-built components from the `google-cloud-pipeline-components` package for tasks such as data processing and model deployment.
-- **Pipeline Caching:** Enable caching in your pipeline to avoid redundant computations.
-- **Resource Management:** Specify machine types and resource requirements for each component to optimize cost and performance.
+### Summary
 
-By following these steps in your Jupyter notebook, you can leverage the full power of Vertex AI and Kubeflow Pipelines to automate and manage your ML workflows efficiently on Google Cloud Platform.
+This updated approach uses the latest Google Cloud AI Platform libraries and KFP SDK to compile and run pipelines. The `AIPlatformClient` class has been deprecated, and instead, we now use `aiplatform.PipelineJob` for submitting jobs to Vertex AI. This modernizes the pipeline submission process and better integrates with the overall Google Cloud ecosystem.
